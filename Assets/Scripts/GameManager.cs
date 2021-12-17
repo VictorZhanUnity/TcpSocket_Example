@@ -7,7 +7,7 @@ using UnityEngine.UI;
 
 public class GameManager : MonoBehaviour
 {
-    [SerializeField] private SocketServer serverSocket;
+   /* [SerializeField] private SocketServer serverSocket;
     [SerializeField] private SocketClient clientSocket;
 
 
@@ -45,5 +45,5 @@ public class GameManager : MonoBehaviour
         {
             serverSocket.CloseSocket(); ;
         }
-    }
+    }*/
 }
