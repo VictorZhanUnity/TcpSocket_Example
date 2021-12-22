@@ -8,18 +8,18 @@ using UnityEngine.Events;
 namespace Managers.TcpSocketHandler
 {
     /// <summary>
-    /// TCP Socket Server相關處理，僅供與Client一對一連線。
+    /// TCP Socket Client相關處理
     /// 外部可收"OnReciveDataFromClient"事件通知，但僅可用Update方式隨時訪問ReciveMessageList的內容來連動更改UI組件
     /// </summary>
-    public class TcpSocketServer
+    public class TcpSocketClient
     {
         #region {========== Singleton: Instance ==========}
-        private static TcpSocketServer _instance;
-        public static TcpSocketServer Instance
+        private static TcpSocketClient _instance;
+        public static TcpSocketClient Instance
         {
             get
             {
-                if (_instance == null) _instance = new TcpSocketServer();
+                if (_instance == null) _instance = new TcpSocketClient();
                 return _instance;
             }
         }
@@ -32,33 +32,33 @@ namespace Managers.TcpSocketHandler
         {
             get
             {
-                IPHostEntry host;
-                string localIP = "0.0.0.0";
-                host = Dns.GetHostEntry(Dns.GetHostName());
-                foreach (IPAddress ip in host.AddressList)
-                {
-                    if (ip.AddressFamily == AddressFamily.InterNetwork)
-                    {
-                        localIP = ip.ToString();
-                        break;
-                    }
-                }
-                return localIP;
+                return TcpSocketServer.Instance.LocalIP;
             }
+        }
+        /// <summary>
+        /// Server的IP
+        /// </summary>
+        public string ServerIP 
+        { 
+            get 
+            {
+                if (serverInfo == null) return "";
+                else return serverInfo.Address.ToString(); 
+            } 
         }
         /// <summary>
         /// Server的Port
         /// </summary>
-        public string ServerPort
-        {
-            get
-            {
+        public string ServerPort 
+        { 
+            get 
+            { 
                 if (serverInfo == null) return "";
-                else return serverInfo.Port.ToString();
-            }
+                else return serverInfo.Port.ToString(); 
+            } 
         }
         /// <summary>
-        /// 收到Client傳來的訊息，若包含":"符號即存入Dictionary中供外部使用
+        /// 收到Server傳來的訊息，若包含":"符號即存入Dictionary中供外部使用
         /// </summary>
         public Dictionary<string, string> ReciveMessageList
         {
@@ -67,49 +67,34 @@ namespace Managers.TcpSocketHandler
         private Dictionary<string, string> reciveMsgList = new Dictionary<string, string>();
 
         /// <summary>
-        /// TCP Socket Server是否開著
+        /// 是否已連線至TCP Socket Server
         /// </summary>
-        public bool IsServerOpen
+        public bool IsServerConnnected
         {
             get
             {
                 return serverInfo != null;
             }
         }
-        /// <summary>
-        /// 是否有Client連線進來
-        /// </summary>
-        public bool IsHaveClient
-        {
-            get
-            {
-                return clientSocket != null;
-            }
-        }
 
         #region {========== Observer事件 ==========}
         /// <summary>
-        /// 當開啟Server時觸發
+        /// 當連線至Server時觸發，送出IP和Port
         /// </summary>
-        public UnityAction<string, string> OnStartServer;
+        public UnityAction<string, string> OnServerConnected;
         /// <summary>
-        /// 當關閉Server時觸發
+        /// 當關閉與Server的連線觸發
         /// </summary>
-        public UnityAction OnCloseServer;
+        public UnityAction OnServerDisconnected;
         /// <summary>
-        /// 當偵測到Client連線過來時觸發
+        /// 當收到Server傳資料過來時觸發
         /// </summary>
-        public UnityAction<IPEndPoint> OnClientConnected;
-        /// <summary>
-        /// 當收到Client傳資料過來時觸發
-        /// </summary>
-        public UnityAction<string> OnReciveDataFromClient;
+        public UnityAction<string> OnReciveDataFromServer;
         #endregion
 
         #region {========== Private變數 ==========}
         private Socket serverSocket;
-        private Socket clientSocket;
-        private IPEndPoint serverInfo, clientInfo;
+        private IPEndPoint serverInfo;
 
         private byte[] reciveData = new byte[1024];
         private byte[] sendData = new byte[1024];
@@ -119,35 +104,23 @@ namespace Managers.TcpSocketHandler
         #endregion
 
         /// <summary>
-        /// 開啟SocketServer
+        /// 連線至TCP Socket Server
         /// </summary>
-        /// <param name="maxClient">最大連線數</param>
-        public void OpenSocket(int port = 8080, int maxClient = 10)
+        public void ConnectToServer(string serverIP, int serverPort = 8080)
         {
-            serverSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-            serverInfo = new IPEndPoint(IPAddress.Any, port); //偵聽任何IP，port埠號
-            serverSocket.Bind(serverInfo); //偵聽連線
-            serverSocket.Listen(maxClient); //最大連線數
-            OnStartServer?.Invoke(LocalIP, ServerPort);
+            //定義伺服器的IP和埠，埠與伺服器對應
+            serverInfo = new IPEndPoint(IPAddress.Parse(serverIP), serverPort);
+            OnServerConnected?.Invoke(ServerIP, ServerPort);
 
             //開啟一個執行緒處理連線資料，避免主執行緒處理serverSocket.Accept()會卡死
             connectThread = new Thread(new ThreadStart(OnReciveData));
-            connectThread.IsBackground = true;
             connectThread.Start();
         }
-
-        /// <summary>
-        /// 取得Client連線資訊
-        /// </summary>
-        private void GetClientInfo()
+        void SocketConnet()
         {
-            clientSocket?.Close();
-            //print("Waiting  for a client");
-            clientSocket = serverSocket.Accept();
-            //取得Client的IP和Port
-            clientInfo = (IPEndPoint)clientSocket.RemoteEndPoint;
-            //print("Connect with Client " + clientInfo.Address.ToString() + ":" + clientInfo.Port.ToString());
-            OnClientConnected?.Invoke(clientInfo);
+            serverSocket?.Close();
+            serverSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            serverSocket.Connect(serverInfo);
         }
 
         /// <summary>
@@ -155,23 +128,23 @@ namespace Managers.TcpSocketHandler
         /// </summary>
         private void OnReciveData()
         {
-            GetClientInfo();
+            SocketConnet();
             while (true)
             {
                 reciveData = new byte[1024];
-                reciveDataLength = clientSocket.Receive(reciveData); //will stop to listen
+                reciveDataLength = serverSocket.Receive(reciveData); //will stop to listen
                 if (reciveDataLength == 0)
                 {
-                    GetClientInfo();
+                    SocketConnet();
                     continue;
                 }
                 string reciveMsg = Encoding.ASCII.GetString(reciveData, 0, reciveDataLength);
-                OnReciveDataFromClient?.Invoke(reciveMsg);
+                OnReciveDataFromServer?.Invoke(reciveMsg);
 
                 if (reciveMsg.Contains(","))
                 {
                     string[] list = reciveMsg.Split(',');
-                    foreach(string item in list)
+                    foreach (string item in list)
                     {
                         ReciveParametersHandler(item);
                     }
@@ -197,34 +170,30 @@ namespace Managers.TcpSocketHandler
         }
 
         /// <summary>
-        /// 將string轉成byte送給Client端
+        /// 將string轉成byte送給Server端
         /// </summary>
-        public void SendDataToClient(string sendMsg)
+        public void SendDataToServer(string sendMsg)
         {
             //清空傳送資料快取
             sendData = new byte[1024];
             //將String轉換成byte，供clientSocket傳送
             sendData = Encoding.ASCII.GetBytes(sendMsg);
-            clientSocket.Send(sendData, sendData.Length, SocketFlags.None);
+            serverSocket.Send(sendData, sendData.Length, SocketFlags.None);
         }
 
         /// <summary>
         /// 關閉TCP Socket Server
         /// </summary>
-        public void CloseSocket()
+        public void DisconnectFromServer()
         {
-            if(clientSocket != null)
-            {
-                SendDataToClient("Server Shutdown");
-                clientSocket.Close();
-                clientSocket = null;
-            }
+            SendDataToServer("Client Disconnected");
+            serverSocket?.Close();
+            serverSocket = null;
+            serverInfo = null;
             connectThread?.Interrupt();
             connectThread?.Abort();
-            serverSocket.Close();
-            serverInfo = null;
             reciveMsgList.Clear();
-            OnCloseServer?.Invoke();
+            OnServerDisconnected?.Invoke();
         }
     }
 }

@@ -3,8 +3,7 @@ using UnityEngine.UI;
 using System.Net;
 using Managers.TcpSocketHandler;
 using Debug = Managers.DebugHandler.DebugManager;
-
-public class Manager_SocketManager : MonoBehaviour
+public class Manager_SocketServer : MonoBehaviour
 {
     [SerializeField] private InputField input_ServerPort, input_MsgToClient;
     [SerializeField] private Text text_Console;
@@ -47,10 +46,10 @@ public class Manager_SocketManager : MonoBehaviour
         TcpSocketServer.Instance.OnCloseServer -= OnCloseServer;
         TcpSocketServer.Instance.OnClientConnected -= OnClientConnected;
         TcpSocketServer.Instance.OnReciveDataFromClient -= OnReciveDataFromClient;
-        button_OpenServer.onClick.RemoveListener(OnStartServer);
-        button_OpenServer.onClick.RemoveListener(OnStartServer);
-        button_CloseServer.onClick.RemoveListener(OnCloseServer);
+        button_OpenServer.onClick.RemoveListener(StartServer);
+        button_CloseServer.onClick.RemoveListener(CloseServer);
         button_SendDataToClient.onClick.RemoveListener(SendDataToClient);
+        button_ClearConsole.onClick.RemoveListener(ClearConsole);
     }
     private void Update()
     {
@@ -67,14 +66,17 @@ public class Manager_SocketManager : MonoBehaviour
     }
     private void UpdateUI()
     {
-        button_SendDataToClient.interactable = (input_MsgToClient.text.Length > 0);
-        button_OpenServer.interactable = (input_ServerPort.text.Length > 0 && !TcpSocketServer.Instance.IsServerOpen);
-        button_CloseServer.interactable = TcpSocketServer.Instance.IsServerOpen;
-        toggle_ServerState.isOn = TcpSocketServer.Instance.IsServerOpen;
-        button_ClearConsole.interactable = (text_Console.text.Length > 0);
+        button_OpenServer.interactable = (input_ServerPort.text.Trim().Length > 0 && !TcpSocketServer.Instance.IsServerOpen);
+        button_CloseServer.interactable =
+            toggle_ServerState.isOn = TcpSocketServer.Instance.IsServerOpen;
+        input_ServerPort.interactable = !TcpSocketServer.Instance.IsServerOpen;
+
         input_MsgToClient.interactable = TcpSocketServer.Instance.IsHaveClient;
-        button_SendDataToClient.interactable = ((input_MsgToClient.text.Length > 0) && TcpSocketServer.Instance.IsHaveClient);
-        if (TcpSocketServer.Instance.IsHaveClient && !input_MsgToClient.isFocused) SetFocus_InputField(input_MsgToClient);
+        button_SendDataToClient.interactable = (TcpSocketServer.Instance.IsHaveClient && input_MsgToClient.text.Length > 0);
+        
+        button_ClearConsole.interactable = (text_Console.text.Length > 0);
+
+        if (TcpSocketServer.Instance.IsHaveClient && !input_MsgToClient.isFocused && input_MsgToClient.text.Length == 0) SetFocus_InputField(input_MsgToClient);
     }
     #endregion
 
@@ -110,9 +112,9 @@ public class Manager_SocketManager : MonoBehaviour
     }
 
     #region {========== Observer¨Æ¥ó ==========}
-    private void OnStartServer()
+    private void OnStartServer(string serverIP, string serverPort)
     {
-        Debug.Log($"===== Server Open: {TcpSocketServer.Instance.ServerIP}: {TcpSocketServer.Instance.ServerPort} =====", Debug.TextColor.white);
+        Debug.Log($"===== Server Open: {serverIP}: {serverPort} =====", Debug.TextColor.white);
     }
     private void OnCloseServer()
     {

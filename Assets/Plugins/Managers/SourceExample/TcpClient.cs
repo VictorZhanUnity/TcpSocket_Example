@@ -27,7 +27,6 @@ public class TcpClient : MonoBehaviour
         ip = IPAddress.Parse("127.0.0.1"); //可以是區域網或網際網路ip，此處是本機
         ipEnd = new IPEndPoint(ip, 5566);
 
-
         //開啟一個執行緒連線，必須的，否則主執行緒卡死
         connectThread = new Thread(new ThreadStart(SocketReceive));
         connectThread.Start();
