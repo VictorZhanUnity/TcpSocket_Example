@@ -1,16 +1,16 @@
-﻿using System;
-using System.Collections;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading;
-using UnityEngine;
 using UnityEngine.Events;
-using Debug = Managers.DebugHandler.DebugManager;
 
 namespace Managers.TcpSocketHandler
 {
+    /// <summary>
+    /// TCP Socket Server相關處理，僅供與Client一對一連線。
+    /// 外部可收"OnReciveDataFromClient"事件通知，但僅可用Update方式隨時訪問ReciveMessageList的內容來連動更改UI組件
+    /// </summary>
     public class TcpSocketServer
     {
         #region {========== Singleton: Instance ==========}
@@ -25,9 +25,6 @@ namespace Managers.TcpSocketHandler
         }
         #endregion
 
-        private Socket serverSocket;
-        private Socket clientSocket;
-        private IPEndPoint serverInfo, clientInfo;
         /// <summary>
         /// Server的IP
         /// </summary>
@@ -49,18 +46,22 @@ namespace Managers.TcpSocketHandler
                 return localIP;
             }
         }
+        /// <summary>
+        /// Server的Port
+        /// </summary>
         public string ServerPort { get { return serverInfo.Port.ToString(); } }
+        /// <summary>
+        /// 收到Client傳來的訊息，若包含":"符號即存入Dictionary中供外部使用
+        /// </summary>
+        public Dictionary<string, string> ReciveMessageList
+        {
+            get { return reciveMsgList; }
+        }
+        private Dictionary<string, string> reciveMsgList = new Dictionary<string, string>();
 
-        private string reciveMsg;
-        private string sendMsg;
-
-        private byte[] reciveData = new byte[1024];
-        private byte[] sendData = new byte[1024];
-
-        private int reciveDataLength;
-
-        private Thread connectThread;
-
+        /// <summary>
+        /// TCP Socket Server是否開著
+        /// </summary>
         public bool IsServerOpen
         {
             get
@@ -68,6 +69,9 @@ namespace Managers.TcpSocketHandler
                 return serverInfo != null;
             }
         }
+        /// <summary>
+        /// 是否有Client連線進來
+        /// </summary>
         public bool IsHaveClient
         {
             get
@@ -76,6 +80,7 @@ namespace Managers.TcpSocketHandler
             }
         }
 
+        #region {========== Observer事件 ==========}
         /// <summary>
         /// 當開啟Server時觸發
         /// </summary>
@@ -88,8 +93,23 @@ namespace Managers.TcpSocketHandler
         /// 當偵測到Client連線過來時觸發
         /// </summary>
         public UnityAction<IPEndPoint> OnClientConnected;
-
+        /// <summary>
+        /// 當收到Client傳資料過來時觸發
+        /// </summary>
         public UnityAction<string> OnReciveDataFromClient;
+        #endregion
+
+        #region {========== Private變數 ==========}
+        private Socket serverSocket;
+        private Socket clientSocket;
+        private IPEndPoint serverInfo, clientInfo;
+
+        private byte[] reciveData = new byte[1024];
+        private byte[] sendData = new byte[1024];
+        private int reciveDataLength;
+
+        private Thread connectThread;
+        #endregion
 
         /// <summary>
         /// 開啟SocketServer
@@ -101,46 +121,12 @@ namespace Managers.TcpSocketHandler
             serverInfo = new IPEndPoint(IPAddress.Any, port); //偵聽任何IP，port埠號
             serverSocket.Bind(serverInfo); //偵聽連線
             serverSocket.Listen(maxClient); //最大連線數
-
-            //開啟一個執行緒處理連線資料，避免主執行緒處理資料會卡死
-            connectThread = new Thread(new ThreadStart(OnReciveData));
-            connectThread.Start();
-
             OnStartServer?.Invoke();
-        }
 
-        /// <summary>
-        /// 當接收到Client傳來資料
-        /// </summary>
-        private void OnReciveData()
-        {
-            GetClientInfo();
-            while (true)
-            {
-                reciveData = new byte[1024];
-                reciveDataLength = clientSocket.Receive(reciveData);
-                if (reciveDataLength == 0)
-                {
-                    GetClientInfo();
-                    continue;
-                }
-                reciveMsg = Encoding.ASCII.GetString(reciveData, 0, reciveDataLength);
-                //print("From Client Message " + reciveMsg);
-
-                OnReciveDataFromClient?.Invoke(reciveMsg);
-            }
-        }
-
-        /// <summary>
-        /// 將string轉成byte送給Client端
-        /// </summary>
-        public void SendDataToClient(string sendMsg)
-        {
-            //清空傳送資料快取
-            sendData = new byte[1024];
-            //將String轉換成byte，供clientSocket傳送
-            sendData = Encoding.ASCII.GetBytes(sendMsg);
-            clientSocket.Send(sendData, sendData.Length, SocketFlags.None);
+            //開啟一個執行緒處理連線資料，避免主執行緒處理serverSocket.Accept()會卡死
+            connectThread = new Thread(new ThreadStart(OnReciveData));
+            connectThread.IsBackground = true;
+            connectThread.Start();
         }
 
         /// <summary>
@@ -157,18 +143,78 @@ namespace Managers.TcpSocketHandler
             OnClientConnected?.Invoke(clientInfo);
         }
 
+        /// <summary>
+        /// 當接收到Client傳來資料
+        /// </summary>
+        private void OnReciveData()
+        {
+            GetClientInfo();
+            while (true)
+            {
+                reciveData = new byte[1024];
+                reciveDataLength = clientSocket.Receive(reciveData); //will stop to listen
+                if (reciveDataLength == 0)
+                {
+                    GetClientInfo();
+                    continue;
+                }
+                string reciveMsg = Encoding.ASCII.GetString(reciveData, 0, reciveDataLength);
+                OnReciveDataFromClient?.Invoke(reciveMsg);
+
+                if (reciveMsg.Contains(","))
+                {
+                    string[] list = reciveMsg.Split(',');
+                    foreach(string item in list)
+                    {
+                        ReciveParametersHandler(item);
+                    }
+                }
+                else
+                {
+                    ReciveParametersHandler(reciveMsg);
+                }
+            }
+        }
+        /// <summary>
+        /// 當傳來的字串包含":"時，當成參數設定存在Dictionary裡供外部讀取
+        /// </summary>
+        private void ReciveParametersHandler(string reciveMsg)
+        {
+            if (reciveMsg.Contains(":"))
+            {
+                string[] str = reciveMsg.Split(':');
+                string key = str[0].Trim(), value = str[1].Trim();
+                if (reciveMsgList.ContainsKey(key)) reciveMsgList[key] = value;
+                else reciveMsgList.Add(key, value);
+            }
+        }
+
+        /// <summary>
+        /// 將string轉成byte送給Client端
+        /// </summary>
+        public void SendDataToClient(string sendMsg)
+        {
+            //清空傳送資料快取
+            sendData = new byte[1024];
+            //將String轉換成byte，供clientSocket傳送
+            sendData = Encoding.ASCII.GetBytes(sendMsg);
+            clientSocket.Send(sendData, sendData.Length, SocketFlags.None);
+        }
+
+        /// <summary>
+        /// 關閉TCP Socket Server
+        /// </summary>
         public void CloseSocket()
         {
+            SendDataToClient("Server Shutdown");
             clientSocket?.Close();
             clientSocket = null;
             connectThread?.Interrupt();
             connectThread?.Abort();
             serverSocket.Close();
             serverInfo = null;
+            reciveMsgList.Clear();
             OnCloseServer?.Invoke();
-            //print("Disconnect");
         }
-
-        
     }
 }
